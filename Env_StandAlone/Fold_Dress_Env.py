@@ -1,5 +1,5 @@
 from isaacsim import SimulationApp
-simulation_app = SimulationApp({"headless": False})
+simulation_app = SimulationApp({"headless": True})
 
 # load external package
 import os
@@ -92,11 +92,8 @@ class FoldDress_Env(BaseEnv):
             prim_path="/World/garment_camera",
         )
         
-        self.env_camera = Recording_Camera(
-            camera_position=np.array([0.0, 4.0, 6.0]),
-            camera_orientation=np.array([0, 60, -90.0]),
-            prim_path="/World/env_camera",
-        )
+        # Disable user-facing camera in headless mode
+        self.env_camera = None
         
         self.garment_pcd = None
         self.points_affordance_feature = None
@@ -122,13 +119,14 @@ class FoldDress_Env(BaseEnv):
                 "/World/Garment/garment",
             ]
         )
-        # initialize gif camera to obtain rgb with the aim of creating gif
-        self.env_camera.initialize(depth_enable=True)
-        
-        # add thread and record gif Asynchronously(use to collect rgb data for generating gif)
-        if record_vedio_flag:
-            self.thread_record = threading.Thread(target=self.env_camera.collect_rgb_graph_for_vedio)
-            self.thread_record.daemon = True
+        # initialize gif camera when enabled
+        if self.env_camera is not None:
+            self.env_camera.initialize(depth_enable=True)
+
+            # add thread and record gif Asynchronously(use to collect rgb data for generating gif)
+            if record_vedio_flag:
+                self.thread_record = threading.Thread(target=self.env_camera.collect_rgb_graph_for_vedio)
+                self.thread_record.daemon = True
                 
         # open hand to be initial state
         self.bimanual_dex.set_both_hand_state("open", "open")
@@ -147,12 +145,12 @@ class FoldDress_Env(BaseEnv):
 
     def record_callback(self, step_size):
 
-        if self.step_num % 5 == 0:
-        
+        if self.step_num % 5 == 0 and self.env_camera is not None:
+
             joint_pos_L = self.bimanual_dex.dexleft.get_joint_positions()
-            
+
             joint_pos_R = self.bimanual_dex.dexright.get_joint_positions()
-            
+
             joint_state = np.array([*joint_pos_L, *joint_pos_R])
 
             rgb = self.env_camera.get_rgb_graph(save_or_not=False)
@@ -161,8 +159,8 @@ class FoldDress_Env(BaseEnv):
                 show_original_pc_online=False,
                 show_downsample_pc_online=False,
             )
-            
-            self.saving_data.append({ 
+
+            self.saving_data.append({
                 "joint_state": joint_state,
                 "image": rgb,
                 "env_point_cloud": point_cloud,
@@ -176,7 +174,7 @@ def FoldDress(pos, ori, usd_path, ground_material_usd, data_collection_flag, rec
     
     env = FoldDress_Env(pos, ori, usd_path, ground_material_usd, record_vedio_flag)
 
-    if record_vedio_flag:
+    if record_vedio_flag and env.env_camera is not None:
         env.thread_record.start()
     
     # hide prim to get garment point cloud
@@ -358,7 +356,7 @@ def FoldDress(pos, ori, usd_path, ground_material_usd, data_collection_flag, rec
     cprint(f"final result: {success}", color="green", on_color="on_green")
     
     # if you wanna create gif, use this code. Need Cooperation with thread.
-    if record_vedio_flag and success:
+    if record_vedio_flag and success and env.env_camera is not None:
         if not os.path.exists("Data/Fold_Dress/vedio"):
             os.makedirs("Data/Fold_Dress/vedio")
         env.env_camera.create_mp4(get_unique_filename("Data/Fold_Dress/vedio/vedio", ".mp4"))
@@ -369,9 +367,10 @@ def FoldDress(pos, ori, usd_path, ground_material_usd, data_collection_flag, rec
             f.write(f"result:{success}  usd_path:{env.garment.usd_path}  pos_x:{pos[0]}  pos_y:{pos[1]}\n")
         if success:
             env.record_to_npz()
-            if not os.path.exists("Data/Fold_Dress/final_state_pic"):
-                os.makedirs("Data/Fold_Dress/final_state_pic")
-            env.env_camera.get_rgb_graph(save_or_not=True,save_path=get_unique_filename("Data/Fold_Dress/final_state_pic/img",".png"))
+            if env.env_camera is not None:
+                if not os.path.exists("Data/Fold_Dress/final_state_pic"):
+                    os.makedirs("Data/Fold_Dress/final_state_pic")
+                env.env_camera.get_rgb_graph(save_or_not=True,save_path=get_unique_filename("Data/Fold_Dress/final_state_pic/img",".png"))
 
         
 if __name__=="__main__":
